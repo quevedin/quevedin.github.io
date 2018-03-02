@@ -1,0 +1,99 @@
+---
+title: 'Machine Learning Project: Activity'
+author: "Lucas Fernandez"
+date: "2 de marzo de 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = FALSE)
+```
+
+## Background
+
+The goal of ths project is use the data coming from wearable devices to predict whether an exercise is done properly
+(Classe A) or the participant incurs in one of four common weighlifting mistakes (Classes B to D), following
+this [article](http://groupware.les.inf.puc-rio.br/public/papers/2013.Velloso.QAR-WLE.pdf)
+
+## Exploring the data
+
+First we start by loading the data and having a look at the data frame:
+```{r}
+set.seed(1564)
+
+library(corrplot);
+library(caret);
+library(rpart);
+library(rpart.plot);
+library(rattle);
+library(gridExtra);
+library(reshape2);
+
+if (!file.exists("training.csv")) {
+  download.file("http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", 
+                destfile = "training.csv")
+}
+if (!file.exists("testing.csv")) {
+  download.file("http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", 
+                destfile = "testing.csv")
+}
+
+training <- read.csv("training.csv", header = TRUE, na.strings = c("NA",""))
+testing <- read.csv("testing.csv", header = TRUE, na.strings = c("NA",""))
+
+dim(training)
+
+```
+A simple visualization shows a lot of empty columns. Also, reading the article suggest that variables such as time order and name may introduce artifacts (whether due to design or exhaustion) and those variables should be discarded:
+```{r}
+qplot(classe, cvtd_timestamp, data=training, color=user_name, size=I(3))
+```
+
+We will trim these variables, and also those with NAs:
+```{r}
+training_filter_col <- training[,(colSums(is.na(training)) == 0)]
+testing_filter_col <- testing[,(colSums(is.na(testing)) == 0)]
+
+removeCol <- c("X","user_name","raw_timestamp_part_1","raw_timestamp_part_2","cvtd_timestamp","new_window")
+training_filter_col <- training_filter_col[,!(names(training_filter_col) %in% removeCol)]
+testing_filter_col <- testing_filter_col[,!(names(testing_filter_col) %in% removeCol)]
+```
+We have now reduced form 160 to 54 variables, a much more manageable number. Further improvement could be achieved removing variables with high colinearity, but we leave that for further improvement.
+
+## Prediction Model Selecion
+
+We will employ two methods to model the training set: a Decission Tree and Random Forest
+We first divide the set into two parts 0.7/0.3:
+```{r}
+label <- createDataPartition(training_filter_col$classe, p = 0.7, list = FALSE)
+train <- training_filter_col[label, ]
+test <- training_filter_col[-label, ]
+```
+### Decission Tree
+```{r}
+modelDT <- rpart(classe ~ ., data = train, method = "class")
+fancyRpartPlot(modelDT)
+
+predictDT <- predict(modelDT, test, type = "class")
+confMatDT <- confusionMatrix(predictDT, test$classe)
+confMatDT
+```
+### Random Forest
+```{r random forest}
+control <- trainControl(method = "cv", number = 4, verboseIter=FALSE)
+modelRF <- train(classe ~ ., data = train, method = "rf", trControl = control,ntree=250)
+modelRF$finalModel
+
+predictRF <- predict(modelRF, test)
+confMatRF <- confusionMatrix(predictRF, test$classe)
+confMatRF
+```
+
+As Random Forest offers the maximum accuracy above 99%, we will go with Random Forest Model to predict our test data class variable.
+
+## Predicting Test Set Output
+The final result of our prediction:
+```{r prediction}
+predictRFF <- predict(modelRF, testing)
+predictRFF
+```
